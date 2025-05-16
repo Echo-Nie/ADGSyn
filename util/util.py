@@ -6,51 +6,92 @@ import pickle
 
 
 class MyDataset(Dataset):
-    def __init__(self, data=None):
-        if not data:
-            with open('../data/data.pt', 'rb') as f:
+    """
+    Custom dataset for handling graph data.
+    """
+    def __init__(self, data_path=None, data=None):
+        """
+        Initialize the dataset either from a file or pre-loaded data.
+
+        Args:
+            data_path (str, optional): Path to the data file.
+            data (list, optional): Pre-loaded list of data samples.
+        """
+        if data is None:
+            if data_path is None:
+                data_path = '../data/data.pt'
+            with open(data_path, 'rb') as f:
                 self.data = pickle.load(f)
         else:
             self.data = data
 
     def __len__(self):
-        return self.data.__len__()
+        """Return the number of samples in the dataset."""
+        return len(self.data)
 
-    def __getitem__(self, item):
-        return self.data[item]
+    def __getitem__(self, index):
+        """Retrieve a sample by index."""
+        return self.data[index]
 
-    def get_data(self, slice):
-        d = [self.data[i] for i in slice]
-        return MyDataset(d)
+    def get_subset(self, indices):
+        """
+        Get a subset of the dataset based on given indices.
 
+        Args:
+            indices (list): List of indices to select.
 
-def collate(data):
-    d1_list, d2_list, label_list = [], [], []
-    for d in data:
-        graph1, graph2, cell, label = d[0], d[1], d[2], d[3]
-
-        graph1.cell = cell
-
-        d1_list.append(graph1)
-        d2_list.append(graph2)
-        label_list.append(label)
-
-    return Batch.from_data_list(d1_list), Batch.from_data_list(d2_list), torch.tensor(label_list)
+        Returns:
+            MyDataset: Subset dataset containing selected samples.
+        """
+        subset_data = [self.data[i] for i in indices]
+        return MyDataset(data=subset_data)
 
 
-def save_AUCs(AUCs, filename):
+def collate_fn(batch):
+    """
+    Collate function for batching graph samples.
+
+    Args:
+        batch (list): List of samples, each being a tuple (graph1, graph2, cell, label).
+
+    Returns:
+        tuple: Batched graphs and labels.
+    """
+    graphs1, graphs2, labels = [], [], []
+    
+    for graph1, graph2, cell, label in batch:
+        graph1.cell = cell  # Attach cell feature to first graph
+        graphs1.append(graph1)
+        graphs2.append(graph2)
+        labels.append(label)
+
+    return Batch.from_data_list(graphs1), Batch.from_data_list(graphs2), torch.tensor(labels)
+
+
+def save_metrics(metrics, filename):
+    """
+    Save metrics to a CSV file.
+
+    Args:
+        metrics (list): List of metric values.
+        filename (str): Path to the output file.
+    """
     with open(filename, 'a') as f:
-        f.write(','.join(map(str, AUCs)) + '\n')
+        f.write(','.join(map(str, metrics)) + '\n')
 
 
+# Example usage
 if __name__ == '__main__':
-    with open('../data/data.pt', 'rb') as f:
-        data = pickle.load(f)
-    d1_list, d2_list, label_list = [], [], []
-
-    for d in data[15:30]:
-        d1_list.append(d[0])
-        d2_list.append(d[1])
-    print(d2_list)
-    # b1 = Batch.from_data_list(d1_list)
-    b2 = Batch.from_data_list(d2_list)
+    # Load dataset
+    data_path = '../data/data.pt'
+    with open(data_path, 'rb') as f:
+        raw_data = pickle.load(f)
+        
+    full_dataset = MyDataset(data=raw_data)
+    demo_subset = full_dataset.get_subset(range(15, 30))
+    
+    # Prepare lists for batching
+    graphs2_list = [item[1] for item in demo_subset]
+    
+    print("Second graph list sample:", graphs2_list)
+    batched_graphs2 = Batch.from_data_list(graphs2_list)
