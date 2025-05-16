@@ -24,6 +24,6 @@ scikit-learn  1.3.0
 Locate the `Data.md` file within the `data` directory to retrieve the data. Then, execute the `main.py` script in the `src` directory to proceed.
 
 ```python
-python main.py
+python main.py 
 ```
 
