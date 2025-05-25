@@ -8,7 +8,7 @@ from sklearn.metrics import accuracy_score
 
 # Assume the following modules are defined
 from NewTechnology.SynPredTest.utils.util import MyDataset, collate
-from model import AttenSyn
+from model import DGAT
 
 
 # Set random seed for reproducibility
