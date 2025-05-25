@@ -7,7 +7,7 @@ from torch_geometric.nn import global_mean_pool
 import numpy as np
 
 
-class AttenSyn(nn.Module):
+class GAT(nn.Module):
     def __init__(
         self,
         molecule_channels: int = 78,
