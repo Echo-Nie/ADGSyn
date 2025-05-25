@@ -1,4 +1,4 @@
-## AMP - DualSyn
+## ADGSyn
 
 **AMP-DualSyn: Accelerated Dual-Stream Learning for Anti-Cancer Drug Combination Discovery** 
 
