@@ -1,6 +1,6 @@
 ## ADGSyn
 
-**AMP-DualSyn: Accelerated Dual-Stream Learning for Anti-Cancer Drug Combination Discovery** 
+**ADGSyn: Dual-Stream Learning for Efficient Anticancer Drug Synergy Prediction** 
 
 
 
