@@ -71,3 +71,14 @@ If you have any questions or need further assistance, feel free to reach out via
 ## 🙌 Acknowledgements
 
 We gratefully acknowledge the support from the Yunnan Provincial Basic Research Youth Project. We also thank our supervisor for guidance and [sweetyoungthing](https://github.com/sweetyoungthing) for assistance.
+
+## Citation
+If you find ADGSyn useful in your research or applications, please kindly cite:
+```
+@article{nie2025adgsyn,
+  title={ADGSyn: Dual-Stream Learning for Efficient Anticancer Drug Synergy Prediction},
+  author={Nie, Yuxuan and Song, Yutong and Peng, Hong},
+  journal={arXiv preprint arXiv:2505.19144},
+  year={2025}
+}
+```
