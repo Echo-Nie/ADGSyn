@@ -5,62 +5,70 @@ from torch.utils.data import Dataset
 import pickle
 
 
-class MyDataset(Dataset):
-    """
-    Custom dataset for handling graph data.
-    """
+class DemoDataset(Dataset):
     def __init__(self, data_path=None, data=None):
-        """
-        Initialize the dataset either from a file or pre-loaded data.
-
-        Args:
-            data_path (str, optional): Path to the data file.
-            data (list, optional): Pre-loaded list of data samples.
-        """
         if data is None:
             if data_path is None:
                 data_path = '../data/data.pt'
-            with open(data_path, 'rb') as f:
-                self.data = pickle.load(f)
+            try:
+                with open(data_path, 'rb') as f:
+                    self.data = pickle.load(f)
+            except FileNotFoundError:
+                print(f"Data file {data_path} not found, creating mock data...")
+                self.data = self._create_demo_data()
         else:
             self.data = data
 
+    def _create_demo_data(self):
+        demo_data = []
+        for i in range(100):
+            num_nodes = np.random.randint(5, 15)
+            
+            x1 = torch.randn(num_nodes, 64)
+            x2 = torch.randn(num_nodes, 64)
+            
+            edge_index1 = torch.randint(0, num_nodes, (2, num_nodes * 2))
+            edge_index2 = torch.randint(0, num_nodes, (2, num_nodes * 2))
+            
+            graph1 = Data(x=x1, edge_index=edge_index1)
+            graph2 = Data(x=x2, edge_index=edge_index2)
+            
+            label = torch.randint(0, 2, (1,)).item()
+            
+            demo_data.append((graph1, graph2, label))
+        
+        return demo_data
+
     def __len__(self):
-        """Return the number of samples in the dataset."""
         return len(self.data)
 
     def __getitem__(self, index):
-        """Retrieve a sample by index."""
         return self.data[index]
 
     def get_subset(self, indices):
-        """
-        Get a subset of the dataset based on given indices.
-
-        Args:
-            indices (list): List of indices to select.
-
-        Returns:
-            MyDataset: Subset dataset containing selected samples.
-        """
         subset_data = [self.data[i] for i in indices]
-        return MyDataset(data=subset_data)
+        return DemoDataset(data=subset_data)
 
 
-def collate_fn(batch):
-    """
-    Collate function for batching graph samples.
-
-    Args:
-        batch (list): List of samples, each being a tuple (graph1, graph2, cell, label).
-
-    Returns:
-        tuple: Batched graphs and labels.
-    """
+def demo_collate(batch):
     graphs1, graphs2, labels = [], [], []
     
-    for graph1, graph2, cell, label in batch:
-        graph1.cell = cell  # Attach cell feature to first graph
+    for item in batch:
+        if len(item) == 4:
+            # Handle format: (graph1, graph2, cell, label)
+            graph1, graph2, cell, label = item
+            # Attach cell feature to graph1 if needed
+            if hasattr(graph1, 'cell'):
+                graph1.cell = cell
+            else:
+                graph1.cell = cell
+        elif len(item) == 3:
+            # Handle format: (graph1, graph2, label)
+            graph1, graph2, label = item
+        else:
+            print(f"Unexpected data format with {len(item)} elements: {item}")
+            continue
+            
         graphs1.append(graph1)
         graphs2.append(graph2)
         labels.append(label)
@@ -68,30 +76,39 @@ def collate_fn(batch):
     return Batch.from_data_list(graphs1), Batch.from_data_list(graphs2), torch.tensor(labels)
 
 
-def save_metrics(metrics, filename):
-    """
-    Save metrics to a CSV file.
-
-    Args:
-        metrics (list): List of metric values.
-        filename (str): Path to the output file.
-    """
-    with open(filename, 'a') as f:
+def save_demo_metrics(metrics, filename):
+    with open(filename, 'a', encoding='utf-8') as f:
         f.write(','.join(map(str, metrics)) + '\n')
 
 
-# Example usage
+def create_demo_graph(num_nodes=10, feature_dim=64):
+    x = torch.randn(num_nodes, feature_dim)
+    edge_index = torch.randint(0, num_nodes, (2, num_nodes * 2))
+    
+    return Data(x=x, edge_index=edge_index)
+
+
 if __name__ == '__main__':
-    # Load dataset
-    data_path = '../data/data.pt'
-    with open(data_path, 'rb') as f:
-        raw_data = pickle.load(f)
-        
-    full_dataset = MyDataset(data=raw_data)
-    demo_subset = full_dataset.get_subset(range(15, 30))
+    print("Testing Demo Dataset...")
     
-    # Prepare lists for batching
-    graphs2_list = [item[1] for item in demo_subset]
+    demo_dataset = DemoDataset()
+    print(f"Dataset size: {len(demo_dataset)}")
     
-    print("Second graph list sample:", graphs2_list)
-    batched_graphs2 = Batch.from_data_list(graphs2_list)
+    sample = demo_dataset[0]
+    print(f"Sample type: {type(sample)}")
+    print(f"Sample content: {len(sample)} elements")
+    print(f"Sample structure: {[type(item) for item in sample]}")
+    
+    # Test with first few samples
+    batch_data = [demo_dataset[i] for i in range(3)]
+    try:
+        batched_graphs1, batched_graphs2, labels = demo_collate(batch_data)
+        print(f"Batched graphs1: {batched_graphs1}")
+        print(f"Batched graphs2: {batched_graphs2}")
+        print(f"Labels: {labels}")
+        print("Demo dataset test completed!")
+    except Exception as e:
+        print(f"Error in collate function: {e}")
+        print("First sample details:")
+        for i, item in enumerate(batch_data[0]):
+            print(f"  Item {i}: {type(item)} - {item}")

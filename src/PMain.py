@@ -6,13 +6,11 @@ from torch import nn, optim
 from torch.utils.data import DataLoader
 from sklearn.metrics import accuracy_score
 
-# Assume the following modules are defined
-from NewTechnology.SynPredTest.utils.util import MyDataset, collate
-from model import DGAT
+from ADGSyn.utils.util import DemoDataset, demo_collate
+from model.DGAT import DemoDualStreamModel
 
 
-# Set random seed for reproducibility
-SEED = 0
+SEED = 42
 random.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
@@ -21,160 +19,172 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
-# Hyperparameter search space
-HYPERPARAM_SPACE = {
-    'learning_rate': [0.001, 0.0005, 0.0001, 0.00005],
-    'batch_size': [128, 256, 512],
-    'num_epochs': [80, 80, 80, 80],
-    'dropout_rate': [0.1, 0.3, 0.5]
+DEMO_HYPERPARAM_SPACE = {
+    'learning_rate': [0.001, 0.0005],
+    'batch_size': [32, 64],
+    'num_epochs': [10, 20],
+    'dropout_rate': [0.1, 0.2]
 }
 
 
-def generate_random_hyperparams():
-    """Generate a random set of hyperparameters from the predefined search space."""
+def generate_demo_hyperparams():
     return {
-        'lr': random.choice(HYPERPARAM_SPACE['learning_rate']),
-        'batch_size': random.choice(HYPERPARAM_SPACE['batch_size']),
-        'num_epochs': random.choice(HYPERPARAM_SPACE['num_epochs']),
-        'dropout': random.choice(HYPERPARAM_SPACE['dropout_rate'])
+        'lr': random.choice(DEMO_HYPERPARAM_SPACE['learning_rate']),
+        'batch_size': random.choice(DEMO_HYPERPARAM_SPACE['batch_size']),
+        'num_epochs': random.choice(DEMO_HYPERPARAM_SPACE['num_epochs']),
+        'dropout': random.choice(DEMO_HYPERPARAM_SPACE['dropout_rate'])
     }
 
 
-def train_one_epoch(model, device, data_loader, optimizer, scaler):
-    """Train the model for one epoch."""
+def demo_train_epoch(model, device, data_loader, optimizer):
     model.train()
-    for data1, data2, y in data_loader:
+    total_loss = 0
+    for batch_idx, (data1, data2, y) in enumerate(data_loader):
         data1, data2, y = data1.to(device), data2.to(device), y.to(device)
         optimizer.zero_grad()
-        with torch.amp.autocast("cuda", enabled=True):
-            output = model(data1, data2)
-            loss = nn.CrossEntropyLoss()(output, y)
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
+        
+        output = model(data1, data2)
+        loss = nn.CrossEntropyLoss()(output, y)
+        
+        loss.backward()
+        optimizer.step()
+        
+        total_loss += loss.item()
+        
+        if batch_idx >= 5:
+            break
+    
+    return total_loss / (batch_idx + 1)
 
 
-def evaluate_model(model, device, data_loader):
-    """Evaluate the model and return true labels and predicted probabilities."""
+def demo_evaluate_model(model, device, data_loader):
     model.eval()
     total_preds = []
     total_labels = []
 
     with torch.no_grad():
-        for data1, data2, y in data_loader:
+        for batch_idx, (data1, data2, y) in enumerate(data_loader):
             data1, data2 = data1.to(device), data2.to(device)
-            with torch.amp.autocast('cuda', enabled=True):
-                output = model(data1, data2)
+            output = model(data1, data2)
             preds = torch.softmax(output, dim=1).cpu().numpy()
             total_preds.extend(preds[:, 1])
             total_labels.extend(y.cpu().numpy())
+            
+            if batch_idx >= 3:
+                break
 
     return np.array(total_labels), np.array(total_preds)
 
 
-def train_and_validate_with_params(params, device, dataset, num_folds=5):
-    """
-    Train and validate using k-fold cross-validation.
-    Returns average accuracy across all folds.
-    """
+def demo_train_and_validate(params, device, dataset, num_folds=3):
     fold_accuracies = []
     dataset_size = len(dataset)
     fold_size = dataset_size // num_folds
 
     for fold in range(num_folds):
-        # Split indices into train and test
+        print(f"Training fold {fold + 1}...")
+        
         indices = list(range(dataset_size))
         test_indices = indices[fold * fold_size: (fold + 1) * fold_size]
         train_indices = [i for i in indices if i not in test_indices]
 
-        # Get data subsets
-        train_data = dataset.get_data(train_indices)
-        test_data = dataset.get_data(test_indices)
+        train_data = dataset.get_subset(train_indices)
+        test_data = dataset.get_subset(test_indices)
 
-        # Create data loaders
         train_loader = DataLoader(train_data, batch_size=params['batch_size'],
-                                  shuffle=True, collate_fn=collate)
+                                  shuffle=True, collate_fn=demo_collate)
         test_loader = DataLoader(test_data, batch_size=params['batch_size'],
-                                 shuffle=False, collate_fn=collate)
+                                 shuffle=False, collate_fn=demo_collate)
 
-        # Build model and optimizer
-        model = AttenSyn(dropout_rate=params['dropout']).to(device)
+        model = DemoDualStreamModel(dropout=params['dropout']).to(device)
         optimizer = optim.Adam(model.parameters(), lr=params['lr'])
-        scaler = torch.amp.GradScaler(enabled=True)
 
         best_acc = 0.0
 
-        # Training loop
         for epoch in range(params['num_epochs']):
-            train_one_epoch(model, device, train_loader, optimizer, scaler)
-            true_labels, pred_probs = evaluate_model(model, device, test_loader)
-            predicted_labels = (pred_probs > 0.5).astype(int)
-            current_acc = accuracy_score(true_labels, predicted_labels)
+            train_loss = demo_train_epoch(model, device, train_loader, optimizer)
+            
+            if epoch % 5 == 0:
+                true_labels, pred_probs = demo_evaluate_model(model, device, test_loader)
+                predicted_labels = (pred_probs > 0.5).astype(int)
+                current_acc = accuracy_score(true_labels, predicted_labels)
 
-            if current_acc > best_acc:
-                best_acc = current_acc
+                if current_acc > best_acc:
+                    best_acc = current_acc
+
+                print(f"Epoch {epoch}: Loss={train_loss:.4f}, Acc={current_acc:.4f}")
 
         fold_accuracies.append(best_acc)
 
     return np.mean(fold_accuracies)
 
 
-def save_search_records(records, filename='hyperparam_search.log'):
-    """Save hyperparameter search records to a log file."""
-    with open(filename, 'w') as f:
-        for record in records:
-            line = f"Score: {record['score']:.4f} | Params: {record['params']} | Time: {record['time']:.1f}s\n"
+def save_demo_records(records, filename='demo_search.log'):
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write("Demo Hyperparameter Search Records\n")
+        f.write("=" * 50 + "\n")
+        for i, record in enumerate(records):
+            line = f"Iteration {i+1}: Accuracy={record['score']:.4f} | Params={record['params']} | Time={record['time']:.1f}s\n"
             f.write(line)
 
 
 if __name__ == "__main__":
-    # Set up device
+    print("Starting Demo Dual-Stream Attention Model Training...")
+    
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
 
-    # Load dataset
-    dataset = MyDataset()
+    try:
+        dataset = DemoDataset()
+        print(f"Dataset size: {len(dataset)}")
+    except Exception as e:
+        print(f"Failed to load dataset: {e}")
+        print("Creating mock dataset...")
+        dataset = None
 
-    # Initialize tracking variables
+    if dataset is None:
+        print("Cannot load dataset, exiting...")
+        exit()
+
     best_params = None
     best_score = 0.0
     search_records = []
 
-    # Perform 50 iterations of random hyperparameter search
-    for iteration in range(50):
-        print(f"\n=== Hyperparameter Search Iteration {iteration + 1}/50 ===")
+    for iteration in range(5):
+        print(f"\n=== Demo Hyperparameter Search Iteration {iteration + 1}/5 ===")
 
-        # Generate new parameters
-        current_params = generate_random_hyperparams()
-        print("Current Parameters:", current_params)
+        current_params = generate_demo_hyperparams()
+        print("Current parameters:", current_params)
 
-        # Train and validate
         start_time = time.time()
-        avg_accuracy = train_and_validate_with_params(current_params, device, dataset)
-        duration = time.time() - start_time
+        try:
+            avg_accuracy = demo_train_and_validate(current_params, device, dataset)
+            duration = time.time() - start_time
 
-        # Record results
-        search_records.append({
-            'params': current_params,
-            'score': avg_accuracy,
-            'time': duration
-        })
+            search_records.append({
+                'params': current_params,
+                'score': avg_accuracy,
+                'time': duration
+            })
 
-        # Update best parameters
-        if avg_accuracy > best_score:
-            best_score = avg_accuracy
-            best_params = current_params
-            print(f"New Best Parameters Found! Accuracy: {avg_accuracy:.4f}")
+            if avg_accuracy > best_score:
+                best_score = avg_accuracy
+                best_params = current_params
+                print(f"New best parameters found! Accuracy: {avg_accuracy:.4f}")
 
-        # Print current best
-        print(f"Current Best Accuracy: {best_score:.4f}")
-        print(f"Current Best Parameters: {best_params}")
+            print(f"Current best accuracy: {best_score:.4f}")
+            print(f"Current best parameters: {best_params}")
+            
+        except Exception as e:
+            print(f"Error during training: {e}")
+            continue
 
-    # Final output
-    print("\n=== Hyperparameter Search Completed ===")
-    print(f"Best Validation Accuracy: {best_score:.4f}")
-    print("Best Parameter Combination:")
-    for key, value in best_params.items():
-        print(f"{key}: {value}")
+    print("\n=== Demo Hyperparameter Search Completed ===")
+    print(f"Best validation accuracy: {best_score:.4f}")
+    print("Best parameter combination:")
+    if best_params:
+        for key, value in best_params.items():
+            print(f"  {key}: {value}")
 
-    # Save logs
-    save_search_records(search_records)
+    save_demo_records(search_records)
+    print("Demo training completed!")
